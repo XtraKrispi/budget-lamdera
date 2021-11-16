@@ -441,6 +441,13 @@ view model =
         [ node "link" [ rel "preconnect", href "https://fonts.googleapis.com" ] []
         , node "link" [ rel "preconnect", href "https://fonts.gstatic.com", Attr.attribute "crossorigin" "" ] []
         , node "link" [ rel "stylesheet", href "https://fonts.googleapis.com/css2?family=Open+Sans&display=swap" ] []
+        , node "link" [ rel "apple-touch-icon", Attr.attribute "sizes" "180x180", href "/apple-touch-icon.png" ] []
+        , node "link" [ rel "icon", type_ "image/png", Attr.attribute "sizes" "32x32", href "/favicon-32x32.png" ] []
+        , node "link" [ rel "icon", type_ "image/png", Attr.attribute "sizes" "16x16", href "/favicon-16x16.png" ] []
+        , node "link" [ rel "manifest", href "/site.webmanifest" ] []
+        , node "link" [ rel "mask-icon", href "/safari-pinned-tab.svg", Attr.attribute "color" "#5bbad5" ] []
+        , node "meta" [ Attr.name "msapplication-TileColor", Attr.attribute "content" "#da532c" ] []
+        , node "meta" [ Attr.name "theme-color", Attr.attribute "content" "#ffffff" ] []
         , div
             [ css
                 [ fontFamilies [ "Open Sans", "sans-serif" ]

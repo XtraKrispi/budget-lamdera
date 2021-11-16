@@ -7,8 +7,8 @@ import Date exposing (Unit(..), fromIsoString, toIsoString, today)
 import FormatNumber
 import FormatNumber.Locales exposing (usLocale)
 import Html.Styled exposing (..)
-import Html.Styled.Attributes as Attr exposing (class, css, href, rel, type_, value)
-import Html.Styled.Events exposing (onClick, onInput)
+import Html.Styled.Attributes as Attr exposing (css, href, rel, type_, value)
+import Html.Styled.Events exposing (onInput)
 import Lamdera exposing (Key, sendToBackend)
 import RouteParser exposing (routeParser)
 import Task

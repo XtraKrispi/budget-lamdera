@@ -75,7 +75,19 @@ type alias ReadyModel =
     , archive : List ActionedItem
     , endDate : Date
     , route : Route
+    , editing : EditingModel
+    , today : Date
     }
+
+
+type OriginalDefinition
+    = OriginalDefinition Definition
+
+
+type EditingModel
+    = NewDef Definition
+    | EditDef OriginalDefinition Definition
+    | NotEditing
 
 
 type FrontendModel
@@ -107,14 +119,19 @@ type FrontendMsg
     | Pay Item
     | Skip Item
     | Undo ActionedItem
+    | Edit Definition
+    | Delete Definition
+    | New
 
 
 type ToBackend
     = GetItems Date
     | GetArchive
+    | GetDefinitions
     | Unarchive ActionedItem
     | PayItem Item
     | SkipItem Item
+    | DeleteDefinition Definition
 
 
 type BackendMsg
@@ -124,5 +141,6 @@ type BackendMsg
 type ToFrontend
     = Items (List Item)
     | ArchiveItems (List ActionedItem)
+    | Definitions (List Definition)
     | ItemPaid Item
     | ItemSkipped Item

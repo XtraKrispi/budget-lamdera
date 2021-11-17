@@ -12,11 +12,12 @@ import Html.Styled.Events exposing (onInput)
 import Lamdera exposing (Key, sendToBackend)
 import RouteParser exposing (routeParser)
 import Task
+import TestData
 import Theme
 import Types exposing (..)
 import Url
 import Url.Parser exposing (parse)
-import Views exposing (ButtonState(..), itemView)
+import Views exposing (ButtonState(..), appButton, itemView)
 
 
 type alias Model =
@@ -112,7 +113,7 @@ update msg model =
                                     ( ed, sendToBackend (GetItems ed) )
 
                                 Admin ->
-                                    ( mdl.endDate, Cmd.none )
+                                    ( mdl.endDate, sendToBackend GetDefinitions )
 
                                 Archive ->
                                     ( mdl.endDate, sendToBackend GetArchive )
@@ -147,6 +148,8 @@ update msg model =
                         , route = initialRoute
                         , definitions = []
                         , archive = []
+                        , editing = NotEditing
+                        , today = date
                         }
                     , sendToBackend (GetItems endDate)
                     )
@@ -171,6 +174,44 @@ update msg model =
         Undo item ->
             ( model, sendToBackend (Unarchive item) )
 
+        Edit definition ->
+            case model of
+                Ready mdl ->
+                    ( Ready { mdl | editing = EditDef (OriginalDefinition definition) definition }, Cmd.none )
+
+                _ ->
+                    ( model, Cmd.none )
+
+        Delete definition ->
+            case model of
+                Ready mdl ->
+                    ( Ready { mdl | definitions = List.filter (\d -> d /= definition) mdl.definitions }
+                    , sendToBackend (DeleteDefinition definition)
+                    )
+
+                Initializing _ ->
+                    ( model, Cmd.none )
+
+        New ->
+            case model of
+                Ready mdl ->
+                    ( Ready
+                        { mdl
+                            | editing =
+                                NewDef
+                                    { description = ""
+                                    , amount = Debit 0
+                                    , frequency = OneTime
+                                    , paymentType = Manual
+                                    , startDate = mdl.today
+                                    }
+                        }
+                    , Cmd.none
+                    )
+
+                Initializing _ ->
+                    ( model, Cmd.none )
+
 
 updateFromBackend : ToFrontend -> Model -> ( Model, Cmd FrontendMsg )
 updateFromBackend msg model =
@@ -187,7 +228,10 @@ updateFromBackend msg model =
         ( ItemSkipped _, Ready mdl ) ->
             ( model, sendToBackend (GetItems mdl.endDate) )
 
-        _ ->
+        ( Definitions defs, Ready mdl ) ->
+            ( Ready { mdl | definitions = defs }, Cmd.none )
+
+        ( _, Initializing _ ) ->
             ( model, Cmd.none )
 
 
@@ -385,8 +429,88 @@ archiveView model =
                 )
                 model.archive
             )
-        , div [ css [ flexGrow (int 3) ] ] []
+        , div
+            [ css
+                [ flexGrow (int 3)
+                , marginLeft (rem 1)
+                ]
+            ]
+            []
         ]
+
+
+adminView : ReadyModel -> Html FrontendMsg
+adminView model =
+    div
+        [ css
+            [ padding (rem 2)
+            , paddingTop (rem 1)
+            , backgroundColor (rgb 255 255 255)
+            , marginTop (rem 0.5)
+            , displayFlex
+            , justifyContent spaceBetween
+            , alignItems flexStart
+            ]
+        ]
+        [ div [ css [ flexGrow (int 1) ] ]
+            [ div [ css [ marginBottom (rem 1) ] ]
+                [ appButton Positive (text "New") New ]
+            , div [] <|
+                List.map
+                    (\d ->
+                        itemView
+                            { leftPane = [ text d.description ]
+                            , rightPane =
+                                [ div [] [ currencyView d.amount ]
+                                , div [] [ text (toIsoString d.startDate) ]
+                                ]
+                            , actions =
+                                [ ( Positive, Edit d, text "Edit" )
+                                , ( Negative, Delete d, text "Delete" )
+                                ]
+                            }
+                    )
+                    model.definitions
+            ]
+        , div
+            [ css
+                [ flexGrow (int 3)
+                , marginLeft (rem 1)
+                ]
+            ]
+            [ editingView model ]
+        ]
+
+
+editingView : ReadyModel -> Html FrontendMsg
+editingView model =
+    case model.editing of
+        NotEditing ->
+            div
+                [ css
+                    [ fontSize (rem 1.5)
+                    , fontWeight bold
+                    ]
+                ]
+                [ text "Nothing to edit" ]
+
+        NewDef d ->
+            div
+                [ css
+                    [ fontSize (rem 1.5)
+                    , fontWeight bold
+                    ]
+                ]
+                [ text "Add" ]
+
+        EditDef (OriginalDefinition od) d ->
+            div
+                [ css
+                    [ fontSize (rem 1.5)
+                    , fontWeight bold
+                    ]
+                ]
+                [ text "Edit" ]
 
 
 readyView : ReadyModel -> Html FrontendMsg
@@ -407,8 +531,11 @@ readyView model =
             Archive ->
                 archiveView model
 
-            _ ->
-                div [] []
+            Admin ->
+                adminView model
+
+            NotFound ->
+                div [] [ text "Ruh Roh..." ]
         ]
 
 
@@ -492,3 +619,21 @@ currencyView amt =
             ]
         ]
         [ text formatted ]
+
+
+
+{- descendant hovers: [ (.) ParentClass
+       [ hover
+           [ descendants
+               [ (.) ChildClass
+                   [ display block
+                   ]
+               ]
+           ]
+       ]
+   , descendants
+       [ (.) ChildClass
+           [ display none ]
+       ]
+   ]
+-}

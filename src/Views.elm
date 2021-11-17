@@ -1,6 +1,7 @@
 module Views exposing (..)
 
 import Css exposing (..)
+import Css.Transitions as T exposing (transition)
 import Html.Styled exposing (..)
 import Html.Styled.Attributes exposing (class, css)
 import Html.Styled.Events exposing (onClick)
@@ -49,6 +50,10 @@ appButton state content click =
             , hover
                 [ color hfg
                 , backgroundColor hbg
+                ]
+            , transition
+                [ T.backgroundColor 100
+                , T.color 100
                 ]
             ]
         , onClick click

@@ -67,11 +67,15 @@ update msg model =
 
 updateFromFrontend : SessionId -> ClientId -> ToBackend -> Model -> ( Model, Cmd BackendMsg )
 updateFromFrontend _ clientId msg model =
+    let
+        defs =
+            model.definitions ++ [ TestData.testDefinition, TestData.testCreditDefinition ]
+    in
     case msg of
         GetItems endDate ->
             let
                 itemsFromDefs =
-                    (model.definitions ++ [ TestData.testDefinition, TestData.testCreditDefinition ])
+                    defs
                         |> List.map (extractItems endDate)
                         |> List.concat
                         |> List.filter
@@ -90,6 +94,9 @@ updateFromFrontend _ clientId msg model =
         GetArchive ->
             ( model, sendToFrontend clientId (ArchiveItems model.archive) )
 
+        GetDefinitions ->
+            ( model, sendToFrontend clientId (Definitions defs) )
+
         PayItem item ->
             ( model, perform (GotDateForAction clientId Paid item) today )
 
@@ -102,6 +109,9 @@ updateFromFrontend _ clientId msg model =
                     List.filter (\a -> a /= item) model.archive
             in
             ( { model | archive = newArchive }, sendToFrontend clientId (ArchiveItems newArchive) )
+
+        DeleteDefinition def ->
+            ( { model | definitions = List.filter (\d -> d /= def) model.definitions }, Cmd.none )
 
 
 extractItems : Date -> Definition -> List Item

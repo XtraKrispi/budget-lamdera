@@ -3,7 +3,9 @@ module Frontend exposing (..)
 import Browser exposing (UrlRequest(..))
 import Browser.Navigation as Nav
 import Css exposing (..)
-import Date exposing (Unit(..), fromIsoString, toIsoString, today)
+import Css.Transitions as T exposing (transition)
+import Date exposing (Date, Unit(..), fromIsoString, toIsoString, today)
+import Dict
 import FormatNumber
 import FormatNumber.Locales exposing (usLocale)
 import Html.Styled exposing (..)
@@ -12,12 +14,11 @@ import Html.Styled.Events exposing (onInput)
 import Lamdera exposing (Key, sendToBackend)
 import RouteParser exposing (routeParser)
 import Task
-import TestData
 import Theme
 import Types exposing (..)
 import Url
 import Url.Parser exposing (parse)
-import Views exposing (ButtonState(..), appButton, itemView)
+import Views exposing (ButtonState(..), appButton, appDropdown, appInput, card, itemView)
 
 
 type alias Model =
@@ -41,6 +42,122 @@ getUrl route =
 
         NotFound ->
             "/not-found"
+
+
+updateAmountType : Amount -> String -> Amount
+updateAmountType amt t =
+    case t of
+        "Credit" ->
+            Credit <| getAmountValue amt
+
+        _ ->
+            Debit <| getAmountValue amt
+
+
+updateAmountValue : Amount -> String -> Amount
+updateAmountValue amt v =
+    case ( amt, String.toFloat v ) of
+        ( Credit _, Just v_ ) ->
+            Credit v_
+
+        ( Debit _, Just v_ ) ->
+            Debit v_
+
+        _ ->
+            amt
+
+
+getAmountType : Amount -> String
+getAmountType a =
+    case a of
+        Debit _ ->
+            "Debit"
+
+        Credit _ ->
+            "Credit"
+
+
+getAmountValue : Amount -> Float
+getAmountValue a =
+    case a of
+        Debit v ->
+            v
+
+        Credit v ->
+            v
+
+
+amountTypes : List String
+amountTypes =
+    [ "Debit", "Credit" ]
+
+
+frequencies : List String
+frequencies =
+    [ "One Time", "Weekly", "Bi-Weekly", "Monthly" ]
+
+
+parseFrequency : String -> Maybe Frequency
+parseFrequency s =
+    case s of
+        "One Time" ->
+            Just OneTime
+
+        "Weekly" ->
+            Just Weekly
+
+        "Bi-Weekly" ->
+            Just BiWeekly
+
+        "Monthly" ->
+            Just Monthly
+
+        _ ->
+            Nothing
+
+
+getFrequency : Frequency -> String
+getFrequency f =
+    case f of
+        OneTime ->
+            "One Time"
+
+        BiWeekly ->
+            "Bi-Weekly"
+
+        Monthly ->
+            "Monthly"
+
+        Weekly ->
+            "Weekly"
+
+
+parsePaymentType : String -> Maybe PaymentType
+parsePaymentType s =
+    case s of
+        "Manual" ->
+            Just Manual
+
+        "Automatic" ->
+            Just Automatic
+
+        _ ->
+            Nothing
+
+
+paymentTypes : List String
+paymentTypes =
+    [ "Manual", "Automatic" ]
+
+
+getPaymentType : PaymentType -> String
+getPaymentType pt =
+    case pt of
+        Automatic ->
+            "Automatic"
+
+        Manual ->
+            "Manual"
 
 
 app :
@@ -79,6 +196,56 @@ init url key =
     )
 
 
+updateReadyModel : (ReadyModel -> ( ReadyModel, Cmd FrontendMsg )) -> Model -> ( Model, Cmd FrontendMsg )
+updateReadyModel fn model =
+    case model of
+        Initializing _ ->
+            ( model, Cmd.none )
+
+        Ready mdl ->
+            let
+                ( newMdl, newCmd ) =
+                    fn mdl
+            in
+            ( Ready newMdl, newCmd )
+
+
+mapEditing : (Definition -> Definition) -> EditingModel -> EditingModel
+mapEditing fn e =
+    case e of
+        NotEditing ->
+            NotEditing
+
+        NewDef d amt ->
+            NewDef (fn d) amt
+
+        EditDef od d amt ->
+            EditDef od (fn d) amt
+
+
+mapEditingAmt : String -> EditingModel -> EditingModel
+mapEditingAmt amt e =
+    case e of
+        NotEditing ->
+            NotEditing
+
+        NewDef d _ ->
+            NewDef d amt
+
+        EditDef od d _ ->
+            EditDef od d amt
+
+
+defaultDef : Date -> Definition
+defaultDef today =
+    { description = ""
+    , amount = Debit 0
+    , frequency = OneTime
+    , paymentType = Manual
+    , startDate = today
+    }
+
+
 update : FrontendMsg -> Model -> ( Model, Cmd FrontendMsg )
 update msg model =
     case msg of
@@ -95,38 +262,37 @@ update msg model =
                     )
 
         UrlChanged url ->
-            case model of
-                Initializing _ ->
-                    ( model, Cmd.none )
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        let
+                            route =
+                                getRoute url
 
-                Ready mdl ->
-                    let
-                        route =
-                            getRoute url
+                            ( endDate, routeCmd ) =
+                                case route of
+                                    Home Nothing ->
+                                        ( mdl.endDate, sendToBackend (GetItems mdl.endDate) )
 
-                        ( endDate, routeCmd ) =
-                            case route of
-                                Home Nothing ->
-                                    ( mdl.endDate, sendToBackend (GetItems mdl.endDate) )
+                                    Home (Just ed) ->
+                                        ( ed, sendToBackend (GetItems ed) )
 
-                                Home (Just ed) ->
-                                    ( ed, sendToBackend (GetItems ed) )
+                                    Admin ->
+                                        ( mdl.endDate, sendToBackend GetDefinitions )
 
-                                Admin ->
-                                    ( mdl.endDate, sendToBackend GetDefinitions )
+                                    Archive ->
+                                        ( mdl.endDate, sendToBackend GetArchive )
 
-                                Archive ->
-                                    ( mdl.endDate, sendToBackend GetArchive )
-
-                                NotFound ->
-                                    ( mdl.endDate, Cmd.none )
-                    in
-                    ( Ready
-                        { mdl
+                                    NotFound ->
+                                        ( mdl.endDate, Cmd.none )
+                        in
+                        ( { mdl
                             | route = route
                             , endDate = endDate
-                        }
-                    , routeCmd
+                            , editing = NotEditing
+                          }
+                        , routeCmd
+                        )
                     )
 
         GotToday date ->
@@ -150,6 +316,7 @@ update msg model =
                         , archive = []
                         , editing = NotEditing
                         , today = date
+                        , dataEntryErrors = Dict.empty
                         }
                     , sendToBackend (GetItems endDate)
                     )
@@ -175,42 +342,113 @@ update msg model =
             ( model, sendToBackend (Unarchive item) )
 
         Edit definition ->
-            case model of
-                Ready mdl ->
-                    ( Ready { mdl | editing = EditDef (OriginalDefinition definition) definition }, Cmd.none )
-
-                _ ->
-                    ( model, Cmd.none )
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl
+                            | editing =
+                                EditDef (OriginalDefinition definition)
+                                    definition
+                                    (FormatNumber.format
+                                        { usLocale
+                                            | decimals = FormatNumber.Locales.Exact 2
+                                            , thousandSeparator = ""
+                                        }
+                                        (getAmountValue definition.amount)
+                                    )
+                          }
+                        , Cmd.none
+                        )
+                    )
 
         Delete definition ->
-            case model of
-                Ready mdl ->
-                    ( Ready { mdl | definitions = List.filter (\d -> d /= definition) mdl.definitions }
-                    , sendToBackend (DeleteDefinition definition)
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl | definitions = List.filter (\d -> d /= definition) mdl.definitions }
+                        , sendToBackend (DeleteDefinition definition)
+                        )
                     )
-
-                Initializing _ ->
-                    ( model, Cmd.none )
 
         New ->
-            case model of
-                Ready mdl ->
-                    ( Ready
-                        { mdl
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl
                             | editing =
                                 NewDef
-                                    { description = ""
-                                    , amount = Debit 0
-                                    , frequency = OneTime
-                                    , paymentType = Manual
-                                    , startDate = mdl.today
-                                    }
-                        }
-                    , Cmd.none
+                                    (defaultDef mdl.today)
+                                    "0.00"
+                          }
+                        , Cmd.none
+                        )
                     )
 
-                Initializing _ ->
-                    ( model, Cmd.none )
+        UpdateDefinitionDescription description ->
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl
+                            | editing =
+                                mapEditing (\d -> { d | description = description }) mdl.editing
+                          }
+                        , Cmd.none
+                        )
+                    )
+
+        UpdateDefinitionAmountType val ->
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl
+                            | editing =
+                                mapEditing (\d -> { d | amount = updateAmountType d.amount val }) mdl.editing
+                          }
+                        , Cmd.none
+                        )
+                    )
+
+        UpdateDefinitionAmountValue val ->
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl
+                            | editing =
+                                mapEditingAmt val mdl.editing
+                          }
+                        , Cmd.none
+                        )
+                    )
+
+        UpdateDefinitionFrequency f ->
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl | editing = mapEditing (\d -> { d | frequency = Maybe.withDefault OneTime (parseFrequency f) }) mdl.editing }
+                        , Cmd.none
+                        )
+                    )
+
+        UpdateDefinitionStartDate sd ->
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl | editing = mapEditing (\d -> { d | startDate = Result.withDefault mdl.today <| fromIsoString sd }) mdl.editing }
+                        , Cmd.none
+                        )
+                    )
+
+        UpdateDefinitionPaymentType pt ->
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl | editing = mapEditing (\d -> { d | paymentType = Maybe.withDefault Manual <| parsePaymentType pt }) mdl.editing }
+                        , Cmd.none
+                        )
+                    )
+
+        CancelEditing ->
+            model |> updateReadyModel (\mdl -> ( { mdl | editing = NotEditing }, Cmd.none ))
 
 
 updateFromBackend : ToFrontend -> Model -> ( Model, Cmd FrontendMsg )
@@ -454,7 +692,7 @@ adminView model =
         ]
         [ div [ css [ flexGrow (int 1) ] ]
             [ div [ css [ marginBottom (rem 1) ] ]
-                [ appButton Positive (text "New") New ]
+                [ appButton New Positive (text "New") [] ]
             , div [] <|
                 List.map
                     (\d ->
@@ -472,45 +710,149 @@ adminView model =
                     )
                     model.definitions
             ]
+        , div [ css [ flexGrow (int 1) ] ] []
+        , editingView model
         , div
             [ css
-                [ flexGrow (int 3)
-                , marginLeft (rem 1)
+                [ flexGrow (int 1)
                 ]
             ]
-            [ editingView model ]
+            []
         ]
 
 
 editingView : ReadyModel -> Html FrontendMsg
 editingView model =
+    let
+        editForm definition amtStr =
+            form
+                [ css
+                    [ displayFlex
+                    , flexDirection column
+                    ]
+                ]
+                [ div [ css [ displayFlex, flexDirection column ] ]
+                    [ div [ css [ fontWeight bold ] ] [ text "Description" ]
+                    , appInput UpdateDefinitionDescription
+                        definition.description
+                        [ Attr.required True
+                        , Attr.placeholder "Description"
+                        ]
+                    ]
+                , div [ css [ displayFlex, flexDirection column, marginTop (rem 1) ] ]
+                    [ div [ css [ fontWeight bold ] ] [ text "Payment Type" ]
+                    , div [ css [ displayFlex ] ]
+                        [ appDropdown UpdateDefinitionPaymentType
+                            (getPaymentType definition.paymentType)
+                            paymentTypes
+                            []
+                        ]
+                    ]
+                , div [ css [ displayFlex, flexDirection column, marginTop (rem 1) ] ]
+                    [ div [ css [ fontWeight bold ] ] [ text "Amount" ]
+                    , div [ css [ displayFlex ] ]
+                        [ appDropdown UpdateDefinitionAmountType
+                            (getAmountType definition.amount)
+                            amountTypes
+                            [ css [ marginRight (rem 0.5) ]
+                            ]
+                        , appInput UpdateDefinitionAmountValue
+                            amtStr
+                            [ Attr.required True
+                            , Attr.placeholder "Amount"
+                            , css
+                                [ textAlign right
+                                , paddingRight (rem 0.5)
+                                ]
+                            ]
+                        ]
+                    ]
+                , div [ css [ displayFlex, flexDirection column, marginTop (rem 1) ] ]
+                    [ div [ css [ fontWeight bold ] ]
+                        [ text "Frequency" ]
+                    , div [ css [ displayFlex ] ]
+                        [ appDropdown UpdateDefinitionFrequency (getFrequency definition.frequency) frequencies []
+                        ]
+                    ]
+                , div [ css [ displayFlex, flexDirection column, marginTop (rem 1) ] ]
+                    [ div [ css [ fontWeight bold ] ]
+                        [ text "Start Date" ]
+                    , div [ css [ displayFlex ] ]
+                        [ appInput UpdateDefinitionStartDate (toIsoString definition.startDate) [ type_ "date" ]
+                        ]
+                    ]
+                , div [ css [ displayFlex, justifyContent spaceBetween, marginTop (rem 1) ] ]
+                    [ appButton CancelEditing Neutral (text "Cancel") []
+                    , appButton CancelEditing Positive (text "Save") []
+                    ]
+                ]
+    in
     case model.editing of
         NotEditing ->
             div
                 [ css
-                    [ fontSize (rem 1.5)
-                    , fontWeight bold
+                    [ position fixed
+                    , transform (translateX (px 280))
+                    , transition [ T.transform 300 ]
+                    , right zero
                     ]
                 ]
-                [ text "Nothing to edit" ]
+                [ card
+                    []
+                    [ div
+                        [ css
+                            [ fontSize (rem 1.5)
+                            , fontWeight bold
+                            ]
+                        ]
+                        [ text "Edit" ]
+                    , editForm (defaultDef model.today) ""
+                    ]
+                ]
 
-        NewDef d ->
+        NewDef d amt ->
             div
                 [ css
-                    [ fontSize (rem 1.5)
-                    , fontWeight bold
+                    [ position fixed
+                    , transform (translateX (px 0))
+                    , transition [ T.transform 300 ]
+                    , right zero
                     ]
                 ]
-                [ text "Add" ]
+                [ card
+                    []
+                    [ div
+                        [ css
+                            [ fontSize (rem 1.5)
+                            , fontWeight bold
+                            ]
+                        ]
+                        [ text "Add" ]
+                    , editForm d amt
+                    ]
+                ]
 
-        EditDef (OriginalDefinition od) d ->
+        EditDef (OriginalDefinition _) d amt ->
             div
                 [ css
-                    [ fontSize (rem 1.5)
-                    , fontWeight bold
+                    [ position fixed
+                    , transform (translateX (px 0))
+                    , transition [ T.transform 300 ]
+                    , right zero
                     ]
                 ]
-                [ text "Edit" ]
+                [ card
+                    []
+                    [ div
+                        [ css
+                            [ fontSize (rem 1.5)
+                            , fontWeight bold
+                            ]
+                        ]
+                        [ text "Edit" ]
+                    , editForm d amt
+                    ]
+                ]
 
 
 readyView : ReadyModel -> Html FrontendMsg
@@ -614,7 +956,7 @@ currencyView amt =
                     Theme.colors.red
 
                  else
-                    Theme.colors.red
+                    Theme.colors.green
                 )
             ]
         ]

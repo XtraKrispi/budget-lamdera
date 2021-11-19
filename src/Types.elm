@@ -3,6 +3,7 @@ module Types exposing (..)
 import Browser exposing (UrlRequest)
 import Browser.Navigation exposing (Key)
 import Date exposing (Date)
+import Dict exposing (Dict)
 import Lamdera exposing (ClientId)
 import Url exposing (Url)
 
@@ -77,6 +78,7 @@ type alias ReadyModel =
     , route : Route
     , editing : EditingModel
     , today : Date
+    , dataEntryErrors : Dict String (List FrontendError)
     }
 
 
@@ -85,8 +87,8 @@ type OriginalDefinition
 
 
 type EditingModel
-    = NewDef Definition
-    | EditDef OriginalDefinition Definition
+    = NewDef Definition String
+    | EditDef OriginalDefinition Definition String
     | NotEditing
 
 
@@ -122,6 +124,13 @@ type FrontendMsg
     | Edit Definition
     | Delete Definition
     | New
+    | UpdateDefinitionDescription String
+    | UpdateDefinitionAmountType String
+    | UpdateDefinitionAmountValue String
+    | UpdateDefinitionFrequency String
+    | UpdateDefinitionStartDate String
+    | UpdateDefinitionPaymentType String
+    | CancelEditing
 
 
 type ToBackend
@@ -144,3 +153,7 @@ type ToFrontend
     | Definitions (List Definition)
     | ItemPaid Item
     | ItemSkipped Item
+
+
+type FrontendError
+    = InvalidAmount String

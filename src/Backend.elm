@@ -3,7 +3,6 @@ module Backend exposing (..)
 import Date exposing (Date, Unit(..), add, today)
 import Lamdera exposing (ClientId, SessionId, sendToFrontend)
 import Task exposing (perform)
-import TestData
 import Time exposing (Month(..))
 import Types exposing (..)
 
@@ -69,7 +68,7 @@ updateFromFrontend : SessionId -> ClientId -> ToBackend -> Model -> ( Model, Cmd
 updateFromFrontend _ clientId msg model =
     let
         defs =
-            model.definitions ++ [ TestData.testDefinition, TestData.testCreditDefinition ]
+            model.definitions
     in
     case msg of
         GetItems endDate ->
@@ -113,6 +112,32 @@ updateFromFrontend _ clientId msg model =
         DeleteDefinition def ->
             ( { model | definitions = List.filter (\d -> d /= def) model.definitions }, Cmd.none )
 
+        AddDefinition def ->
+            let
+                newDefs =
+                    def :: model.definitions
+            in
+            ( { model | definitions = newDefs }, sendToFrontend clientId (Definitions newDefs) )
+
+        UpdateDefinition (OriginalDefinition original) def ->
+            let
+                newDefs =
+                    List.map
+                        (\d ->
+                            if d == original then
+                                def
+
+                            else
+                                d
+                        )
+                        model.definitions
+            in
+            ( { model
+                | definitions = newDefs
+              }
+            , sendToFrontend clientId (Definitions newDefs)
+            )
+
 
 extractItems : Date -> Definition -> List Item
 extractItems endDate def =
@@ -134,12 +159,16 @@ extractItems endDate def =
     in
     case def.frequency of
         OneTime ->
-            [ { description = def.description
-              , amount = def.amount
-              , date = def.startDate
-              , paymentType = def.paymentType
-              }
-            ]
+            if Date.compare def.startDate endDate == GT then
+                []
+
+            else
+                [ { description = def.description
+                  , amount = def.amount
+                  , date = def.startDate
+                  , paymentType = def.paymentType
+                  }
+                ]
 
         Weekly ->
             go (add Weeks 1) def.startDate []

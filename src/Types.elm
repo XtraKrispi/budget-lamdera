@@ -79,6 +79,7 @@ type alias ReadyModel =
     , editing : EditingModel
     , today : Date
     , dataEntryErrors : Dict String (List FrontendError)
+    , scratchLeftOver : Float
     }
 
 
@@ -131,6 +132,8 @@ type FrontendMsg
     | UpdateDefinitionStartDate String
     | UpdateDefinitionPaymentType String
     | CancelEditing
+    | CommitEditing
+    | UpdateScratchLeftOverAmount String
 
 
 type ToBackend
@@ -141,6 +144,8 @@ type ToBackend
     | PayItem Item
     | SkipItem Item
     | DeleteDefinition Definition
+    | AddDefinition Definition
+    | UpdateDefinition OriginalDefinition Definition
 
 
 type BackendMsg

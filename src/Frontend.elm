@@ -317,6 +317,7 @@ update msg model =
                         , editing = NotEditing
                         , today = date
                         , dataEntryErrors = Dict.empty
+                        , scratchLeftOver = 100
                         }
                     , sendToBackend (GetItems endDate)
                     )
@@ -450,6 +451,45 @@ update msg model =
         CancelEditing ->
             model |> updateReadyModel (\mdl -> ( { mdl | editing = NotEditing }, Cmd.none ))
 
+        CommitEditing ->
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl | editing = NotEditing }
+                        , case mdl.editing of
+                            NewDef d amtStr ->
+                                let
+                                    newD =
+                                        { d | amount = updateAmountValue d.amount amtStr }
+                                in
+                                sendToBackend <| AddDefinition newD
+
+                            EditDef o d amtStr ->
+                                let
+                                    newD =
+                                        { d | amount = updateAmountValue d.amount amtStr }
+                                in
+                                sendToBackend <| UpdateDefinition o newD
+
+                            _ ->
+                                Cmd.none
+                        )
+                    )
+
+        UpdateScratchLeftOverAmount amt ->
+            model
+                |> updateReadyModel
+                    (\mdl ->
+                        ( { mdl
+                            | scratchLeftOver =
+                                Maybe.withDefault
+                                    mdl.scratchLeftOver
+                                    (String.toFloat amt)
+                          }
+                        , Cmd.none
+                        )
+                    )
+
 
 updateFromBackend : ToFrontend -> Model -> ( Model, Cmd FrontendMsg )
 updateFromBackend msg model =
@@ -555,6 +595,26 @@ navbar model =
         )
 
 
+sumItems : (Item -> Bool) -> List Item -> Float
+sumItems p xs =
+    xs
+        |> List.filter p
+        |> List.map (getAmountValue << .amount)
+        |> List.sum
+
+
+isDebit : Amount -> Bool
+isDebit amt =
+    case
+        amt
+    of
+        Debit _ ->
+            True
+
+        _ ->
+            False
+
+
 homeView : ReadyModel -> Html FrontendMsg
 homeView model =
     let
@@ -593,9 +653,23 @@ homeView model =
                     (List.map
                         (\item ->
                             itemView
-                                { leftPane = [ text item.description ]
+                                { leftPane =
+                                    [ span
+                                        [ css
+                                            [ color
+                                                (case item.paymentType of
+                                                    Manual ->
+                                                        Theme.colors.red
+
+                                                    Automatic ->
+                                                        Theme.colors.black
+                                                )
+                                            ]
+                                        ]
+                                        [ text item.description ]
+                                    ]
                                 , rightPane =
-                                    [ div [] [ currencyView item.amount ]
+                                    [ div [] [ currencyView (isDebit item.amount) (getAmountValue item.amount) ]
                                     , div [] [ text (toIsoString item.date) ]
                                     ]
                                 , actions =
@@ -609,6 +683,16 @@ homeView model =
                 ]
 
         rightPane =
+            let
+                totalDebits =
+                    sumItems (isDebit << .amount) model.items
+
+                totalCredits =
+                    sumItems ((not << isDebit) << .amount) model.items
+
+                total =
+                    totalCredits - model.scratchLeftOver - totalDebits
+            in
             div
                 [ css
                     [ flexGrow (int 3)
@@ -619,9 +703,72 @@ homeView model =
                     [ css
                         [ fontSize (rem 1.5)
                         , fontWeight bold
+                        , marginBottom (rem 1.3)
                         ]
                     ]
                     [ text "Scratch" ]
+                , card []
+                    [ div
+                        [ css
+                            [ displayFlex
+                            , flexDirection column
+                            ]
+                        ]
+                        [ div
+                            [ css
+                                [ displayFlex
+                                , justifyContent spaceBetween
+                                ]
+                            ]
+                            [ span [] [ text "Total Credits:" ]
+                            , span [ css [ textAlign right ] ] [ currencyView True totalDebits ]
+                            ]
+                        , div
+                            [ css
+                                [ displayFlex
+                                , justifyContent spaceBetween
+                                ]
+                            ]
+                            [ span [] [ text "Total Debits:" ]
+                            , span [ css [ textAlign right ] ]
+                                [ currencyView False totalCredits ]
+                            ]
+                        , div
+                            [ css
+                                [ displayFlex
+                                , justifyContent spaceBetween
+                                ]
+                            ]
+                            [ span [] [ text "Left over:" ]
+                            , div []
+                                [ span [] [ text "$" ]
+                                , input
+                                    [ value (String.fromFloat model.scratchLeftOver)
+                                    , onInput UpdateScratchLeftOverAmount
+                                    , css
+                                        [ textAlign right
+                                        , fontSize (rem 1)
+                                        , borderRadius (rem 0.2)
+                                        , border3 (px 1) solid Theme.colors.gray
+                                        , fontFamilies [ "Open Sans" ]
+                                        ]
+                                    ]
+                                    []
+                                ]
+                            ]
+                        , div
+                            [ css
+                                [ displayFlex
+                                , justifyContent spaceBetween
+                                ]
+                            ]
+                            [ span [] [ text "Difference:" ]
+                            , span [ css [ textAlign right ] ]
+                                [ currencyView (total < 0) (abs total)
+                                ]
+                            ]
+                        ]
+                    ]
                 ]
     in
     div
@@ -659,7 +806,7 @@ archiveView model =
                     itemView
                         { leftPane = [ text item.description ]
                         , rightPane =
-                            [ div [] [ currencyView item.amount ]
+                            [ div [] [ currencyView (isDebit item.amount) (getAmountValue item.amount) ]
                             , div [] [ text (toIsoString item.date) ]
                             ]
                         , actions = [ ( Neutral, Undo item, text "Undo" ) ]
@@ -699,7 +846,7 @@ adminView model =
                         itemView
                             { leftPane = [ text d.description ]
                             , rightPane =
-                                [ div [] [ currencyView d.amount ]
+                                [ div [] [ currencyView (isDebit d.amount) (getAmountValue d.amount) ]
                                 , div [] [ text (toIsoString d.startDate) ]
                                 ]
                             , actions =
@@ -783,18 +930,18 @@ editingView model =
                     ]
                 , div [ css [ displayFlex, justifyContent spaceBetween, marginTop (rem 1) ] ]
                     [ appButton CancelEditing Neutral (text "Cancel") []
-                    , appButton CancelEditing Positive (text "Save") []
+                    , appButton CommitEditing Positive (text "Save") []
                     ]
                 ]
-    in
-    case model.editing of
-        NotEditing ->
+
+        visibleEditor txt f =
             div
                 [ css
                     [ position fixed
-                    , transform (translateX (px 280))
+                    , transform (translateX (px 0))
                     , transition [ T.transform 300 ]
                     , right zero
+                    , width (vw 20)
                     ]
                 ]
                 [ card
@@ -805,18 +952,20 @@ editingView model =
                             , fontWeight bold
                             ]
                         ]
-                        [ text "Edit" ]
-                    , editForm (defaultDef model.today) ""
+                        [ text txt ]
+                    , f
                     ]
                 ]
-
-        NewDef d amt ->
+    in
+    case model.editing of
+        NotEditing ->
             div
                 [ css
                     [ position fixed
-                    , transform (translateX (px 0))
+                    , transform (translateX (vw 19))
                     , transition [ T.transform 300 ]
                     , right zero
+                    , width (vw 20)
                     ]
                 ]
                 [ card
@@ -828,31 +977,15 @@ editingView model =
                             ]
                         ]
                         [ text "Add" ]
-                    , editForm d amt
+                    , editForm (defaultDef model.today) ""
                     ]
                 ]
 
+        NewDef d amt ->
+            visibleEditor "Add" (editForm d amt)
+
         EditDef (OriginalDefinition _) d amt ->
-            div
-                [ css
-                    [ position fixed
-                    , transform (translateX (px 0))
-                    , transition [ T.transform 300 ]
-                    , right zero
-                    ]
-                ]
-                [ card
-                    []
-                    [ div
-                        [ css
-                            [ fontSize (rem 1.5)
-                            , fontWeight bold
-                            ]
-                        ]
-                        [ text "Edit" ]
-                    , editForm d amt
-                    ]
-                ]
+            visibleEditor "Edit" (editForm d amt)
 
 
 readyView : ReadyModel -> Html FrontendMsg
@@ -930,29 +1063,21 @@ view model =
     }
 
 
-currencyView : Amount -> Html FrontendMsg
-currencyView amt =
+currencyView : Bool -> Float -> Html FrontendMsg
+currencyView debit amt =
     let
-        ( isDebit, f ) =
-            case amt of
-                Debit a ->
-                    ( True, a )
-
-                Credit a ->
-                    ( False, a )
-
         formatted =
             "$"
                 ++ FormatNumber.format
                     { usLocale
                         | decimals = FormatNumber.Locales.Exact 2
                     }
-                    f
+                    amt
     in
     span
         [ css
             [ color
-                (if isDebit then
+                (if debit then
                     Theme.colors.red
 
                  else
